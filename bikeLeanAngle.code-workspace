@@ -1,0 +1,31 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../21stHome/21stCata_mqtt"
+		},
+		{
+			"path": "../../libraries/MPU6050"
+		},
+		{
+			"path": "../GateControl"
+		},
+		{
+			"path": "../../libraries/ESP32PWM"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.ino": "cpp",
+			"array": "cpp",
+			"deque": "cpp",
+			"string": "cpp",
+			"unordered_map": "cpp",
+			"unordered_set": "cpp",
+			"vector": "cpp",
+			"initializer_list": "cpp"
+		}
+	}
+}
