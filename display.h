@@ -108,7 +108,7 @@ void drawVProgressBar(uint16_t x, uint16_t y, uint16_t width, uint16_t height, u
   display.fillRect(x + 1, y+height-radius-1-maxProgressHeight, width -2, maxProgressHeight,WHITE);
   display.fillCircle(xRadius , y+height-radius-1-maxProgressHeight, innerRadius,WHITE);
   
-  display.display();
+  //display.display();
   
   //DEBUG_MSG("Bar Start:%d/%d\tprog:%d\tprogHeight:%d\n",x + 1,y+height-radius-1-maxProgressHeight,progress,maxProgressHeight);
 }
@@ -128,7 +128,7 @@ void displayLineAngle(uint16_t x, uint16_t y, int8_t angle, uint8_t color = WHIT
   endY += y;
   endX += x;
   display.drawLine(x,y,endX,endY,color);
-  display.display();
+  //display.display();
 
 }
 void displayAngleGauge(uint8_t x, uint8_t y, uint8_t size){
@@ -143,7 +143,7 @@ void displayAngleGauge(uint8_t x, uint8_t y, uint8_t size){
   display.drawFastVLine(centerX, 2,size-2,WHITE );
   display.drawCircleHelper(centerX, centerY,size,3,WHITE);
   
-  display.display();
+  //display.display();
 
 
 }
@@ -162,7 +162,7 @@ void displayAngle(uint8_t x, uint8_t y, int8_t angle){
     display.fillRect(x1,y1,w,h,BLACK);
     display.setCursor(x,y);
     display.printf("%+03d",angle);
-    display.display();
+    //display.display();
     //display.setTextColor(WHITE,BLACK);
 }
 
@@ -178,7 +178,7 @@ display.printf("L%02d",left);
 display.setCursor(0,13+15);
 display.fillRect(0,15,40,15,BLACK);
 display.printf("R%02d",right);
-display.display();
+//display.display();
 }
 
 void displayAcceleration(int16_t acc){

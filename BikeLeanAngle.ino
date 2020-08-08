@@ -29,7 +29,7 @@
 #include "display.h"
 #include "appParameters.h"
 
-
+TaskHandle_t core0taskHandler;
 
 //********
 // GLOBAL VARS AND OBJECTS FOR WFI
@@ -63,6 +63,9 @@ void playTone(uint8_t pin, int16_t freq, uint32_t dur){
 #define MPU_INT 23 //5 //for ESP32  //14 for ESP8266
 #define SCLPIN  4 //5 ESP8266 // 22 for ESP32
 #define SDAPIN  5 //4 ESP8266 // 21 for ESP32
+
+uint32_t valueSetTimestamp;
+bool valuelock = false;
 
 #include <PAMpu.h>
 
@@ -115,11 +118,46 @@ void handleNotFound() {
   server.send(404, "text/plain", message);
 }
 
+void core0task( void *pvPameters){
 
+  // task specific setup()
+
+  setup0();
+
+
+  // task loop()
+  while(true){
+    loop0();
+  }
+
+
+
+}
+
+void setup0(){
+
+  Serial.print("Running at core:");
+  Serial.println(xPortGetCoreID());
+
+    // Neopixel setup
+  pixels.Begin();
+  pixels.Show();
+  pixels.PIX_flash(0,NEOWHITE,3);
+
+}
 
 void setup(){
   Serial.begin(115200);
 
+
+  //#### setup task to run on Core 0 ####
+
+  xTaskCreatePinnedToCore(core0task, "core0task", 20000, NULL, 0, &core0taskHandler, 0); /* Core where the task should run */
+
+  //delay(500); 
+
+
+  // initiate display, show startup splash and draw dashboard
   displaySetup();
   display.clearDisplay();
   display.setCursor(0,15);
@@ -130,152 +168,69 @@ void setup(){
   delay(2000);
   display.clearDisplay();
 
+  displayAngle(0);
+  display.display();
+
+  for(float i = 1;i <10; i++){
+      
+      displayAngle((int8_t)(i*10));
+
+  }
+  display.display();
 
   displayMaxLeanAngle(0,0); // leff, right max angles
   displayAngle(0);
   displayAcceleration(0);  
+      
   
-  /*
-  displayAngleGauge(40,30,30); // size = 30 => 30 pixels high, 60 wide
-  uint8_t centerX = 40+30, centerY=30;
-      for(int i = 0 ; i < 40; i++){
-        static int8_t lastAngle = 0;
-        DEBUG_MSG("lastAngle:%d\tangle:%d\n",lastAngle, i);
-        displayLineAngle(centerX, centerY, lastAngle,BLACK,GAUGESIZE,0.5f);
-        displayLineAngle(centerX, centerY,i,WHITE,GAUGESIZE,0.5f);
-        lastAngle = i;
-        display.display();
-        delay(200);
-      }
-  */
-    
-  
-
   // initialize WiFi
   Esp.initialize(false);
-
-  ReadAppConfig(); // load appConfig structure with stored app parameters
 
   server.on("/appCFG",send_app_html);
   server.on("/appCFGvalues",send_app_values_html);
   server.onNotFound(handleNotFound);
   server.begin();
 
+  // load app configurations
+  ReadAppConfig(); // load appConfig structure with stored app parameters
 
   // intitiate MPU
   mpu_setup();
   mpu_Offsets(mpu, offsets[4]);
   //delay(5000); // settling time for MPU
   
-	  
+	/*
   // Neopixel setup
   pixels.Begin();
   pixels.Show();
   pixels.PIX_flash(0,NEOWHITE,3);
+  */
 
 
 }
 
 
-void loop(){
+// variables common to core1 and core0
 
-  // OTA request handling
-  ArduinoOTA.handle();
-
-  //  WebServer requests handling
-  server.handleClient();
-
-   //  feed de DOG :)
-  customWatchdog = millis();
-
-  // if new reading , display
-  
-  blinkEvery(LED,1000,200);
+float leanAngle, minAngle = 0, maxAngle = 0 ;
+uint8_t maxAngleChanged = false;
+uint8_t newValues = false;
+char strMSG[50]= "";
+RgbColor color = 0; 
+uint8_t level;
+uint8_t emergency = false;
+int16_t acceleration;
 
 
-
-  /*
-  *   if the is an interrupt or sucessive interrupt, read all avaliable value
-  *     and calculate Roll Pitch, Yaw and acceleration
-  *     chech min or max lean have been achieved
-  *   if angle < MinAngle update min angle
-  *   if angle > Max angle update max angle
-  *   if new reading show angle , min angle, max angle reading on display
-  *   in case new lean value have been read display it by
-  *     check min or max have been achieved and display it
-  *     check if acceleration alarm levels have been reach and display NOEPixels
-  *         if Y accel >  Break threshold 
-  *             show neopixel NEORED
-  *          else
-  *             shutdown NeoPixel
-  *   
-  *         if Y accel < Accel threashold
-  *             show neopixel NEOGREEN
-  *         else
-  *             shutdown NeoPixel
-  *     display acceleration level on vertical prograssBars
-  */
-
-  static float leanAngle, minAngle = 0, maxAngle = 0 ;
-  uint8_t maxAngleChanged = false;
-  uint32_t readtime = millis();
-  char strMSG[50]= "";
-  uint8_t newValues = false;
-  
-  while(mpuInterrupt){
-    //Serial.print("#");
-    newValues = true;
-    if(!mpu_loop()){
-      continue;
-    };
-    /*
-    if(overflow){
-      overflow = false;
-      fifoIdx = (fifoIdx -1) % 8;
-      DEBUG_MSG("[1st after overflow Accel:%d\tyaw:%d\n\n",aaReal.x,ypr[2]*180/PI)+180;
-      return;
-    }
-
-    /*
-    * update Lean angle on display
-    * */
-    switch (appConfig.leanAxis){
-      case 1: // X axis
-          leanAngle = ypr[2];
-          break;
-      case 2: // ? Axis
-          leanAngle = ypr[0];
-          break;
-      case 3: // ? Axis
-          leanAngle = ypr[1];
-          break;
-    }
-    leanAngle = leanAngle*180/M_PI; // roll angle to do : make angle config considering sensor position on bike
-    if(leanAngle <= -90) leanAngle += 180;
-    else if(leanAngle >= 90) leanAngle -= 180;
+void loop0(){
     
-    if((int16_t)leanAngle < (int16_t)minAngle) {
-      if(leanAngle >=-90){
-        minAngle = leanAngle;
-        maxAngleChanged = true;
-      }
-    }
-    if((int16_t) leanAngle > (int16_t) maxAngle) {
-      if(leanAngle <=90){
-        maxAngle = leanAngle;
-        maxAngleChanged = true;
-      }
-    } 
-  }
-  
+  //DEBUG_MSG("core:%d\t",xPortGetCoreID());
+  uint32_t loop0timestamp = millis();
+
   if(newValues)
   { 
+    DEBUG_MSG("new values\n\n");
     newValues = false;
-    RgbColor color = 0; 
-    uint8_t level;
-    uint8_t emergency = false;
-    int16_t acceleration;
-
     // collect accelaratio form configured axis
     switch (appConfig.accAxis){
       case 1:// X axis   
@@ -307,52 +262,12 @@ void loop(){
     else {
       level = 0;
     }
-         
-    if(emergency){  // flash LED according to emergency and level
-      mpu.setFIFOEnabled(false);
-      //mpu.resetFIFO();
-      mpuResetFIFO();
+
     
-      DEBUG_MSG("\n\n <<<<<<<    EMERGENCY >>>>>>>   %d\n\n",acceleration);
-      // flash LEDs 3 times
-      for(int j = 0; j<3; j++){ 
-        // Switch ALL pixel ON
-        for (int i = 0 ; i < NUMPIXELS; i++){
-          pixels.SetPixelColor(i,color);
-        }
-        pixels.Show();
-        delay(200);
-        // Switch ALL pixel OFF
-        for (int i = 0 ; i < NUMPIXELS; i++){
-          pixels.SetPixelColor(i,NEOBLACK);
-        }
-        pixels.Show();
-        delay(200);
-
-      }
-      emergency = false;
-      mpu.setFIFOEnabled(true);
-
-    }
-    // else light as many LED as Level
-    else{
-      for(int i = 0;i < NUMPIXELS; i++){ 
-        if(i < level) pixels.PIX_on(i,color);
-        else pixels.PIX_off(i); // turn off the remaing ones
-      }
-    }
-
-    if( maxAngleChanged) {
-      displayMaxLeanAngle(-minAngle,maxAngle);
-      maxAngleChanged= false;
-      playTone(BUZ,4000,500);
-    }
-    
-    displayAngle((int8_t)leanAngle);
     int16_t acc;
     acc = (acceleration * 100 / appConfig.brakeEmg);
     displayAcceleration( acc );
-
+    
     /*
     String prtStr = "";
     char tmpStr[10] ="";
@@ -364,6 +279,163 @@ void loop(){
     DEBUG_MSG("level:%d\tacc:%d\tacc%%:%d\t%s\ttaskTime:%d\n%s",level,acceleration, acc, prtStr.c_str(),millis()-readtime,strMSG);
     */
   }
+  
+  if(emergency ){  // flash LED according to emergency and level
+  
+    DEBUG_MSG("\n\n <<<<<<<    EMERGENCY >>>>>>>   %d\n\n",acceleration);
+    // flash LEDs 3 times
+    
+    for(int j = 0; j<3; j++){ 
+      // Switch ALL pixel ON
+      for (int i = 0 ; i < NUMPIXELS; i++){
+        pixels.SetPixelColor(i,color);
+      }
+      pixels.Show();
+      delay(200);
+      // Switch ALL pixel OFF
+      for (int i = 0 ; i < NUMPIXELS; i++){
+        pixels.SetPixelColor(i,NEOBLACK);
+      }
+      pixels.Show();
+      delay(200);
+
+    }
+    
+    emergency = false;
+  }
+  else{  // else light as many LED as Level
+    DEBUG_MSG("\n INT - led start :%d\n",millis()-valueSetTimestamp);
+    valueSetTimestamp = millis();
+
+    for(int i = 0;i < NUMPIXELS; i++){ 
+      if(i < level) pixels.PIX_on(i,color);
+      else pixels.PIX_off(i); // turn off the remaing ones
+    }
+    DEBUG_MSG("\n INT - led END # :%d\n",millis()-valueSetTimestamp);
+    valuelock = false;
+
+  }
+  
+  DEBUG_MSG("\nloop0 flash:%d\n",millis()-loop0timestamp);
+  loop0timestamp = millis();
+
+
+
+}
+
+
+void loop(){
+  uint32_t loop1timestamp = millis() ;
+  static uint32_t displayTimer = millis();
+  uint32_t displayInterval_ms = 100;
+
+  // OTA request handling
+  ArduinoOTA.handle();
+
+  //  WebServer requests handling
+  server.handleClient();
+
+   //  feed de DOG :)
+  customWatchdog = millis();
+
+  // blink LED every second
+  blinkEvery(LED,1000,200);
+
+  /*
+  *   if the is an interrupt or sucessive interrupt, read all avaliable value
+  *     and calculate Roll Pitch, Yaw and acceleration
+  *     chech min or max lean have been achieved
+  *   if angle < MinAngle update min angle
+  *   if angle > Max angle update max angle
+  *   if new reading show angle , min angle, max angle reading on display
+  *   in case new lean value have been read display it by
+  *     check min or max have been achieved and display it
+  *     check if acceleration alarm levels have been reach and display NOEPixels
+  *         if Y accel >  Break threshold 
+  *             show neopixel NEORED
+  *          else
+  *             shutdown NeoPixel
+  *   
+  *         if Y accel < Accel threashold
+  *             show neopixel NEOGREEN
+  *         else
+  *             shutdown NeoPixel
+  *     display acceleration level on vertical prograssBars
+  */
+  DEBUG_MSG("\nloop1 - Wifi:%d\n",millis()-loop1timestamp);
+  loop1timestamp = millis();
+  while(mpuInterrupt){
+    delay(1);
+    DEBUG_MSG("#");
+    newValues = true;
+    DEBUG_MSG("\n INT - detect :%d\n",millis()-valueSetTimestamp);
+    valueSetTimestamp = millis();
+
+    if(!mpu_loop()){
+      continue;
+    }    
+    DEBUG_MSG("\n INT - read :%d\n",millis()-valueSetTimestamp);
+    valueSetTimestamp = millis();
+
+  DEBUG_MSG("\nloop1 - MPU loop:%d\n",millis()-loop1timestamp);
+  loop1timestamp = millis();
+
+    /*
+    * update Lean angle on display
+    * */
+    switch (appConfig.leanAxis){
+      case 1: // X axis
+          leanAngle = ypr[2];
+          break;
+      case 2: // ? Axis
+          leanAngle = ypr[0];
+          break;
+      case 3: // ? Axis
+          leanAngle = ypr[1];
+          break;
+    }
+    leanAngle = leanAngle*180/M_PI; // roll angle to do : make angle config considering sensor position on bike
+    if(leanAngle <= -90) leanAngle += 180;
+    else if(leanAngle >= 90) leanAngle -= 180;
+    
+    if((int16_t)leanAngle < (int16_t)minAngle) {
+      if(leanAngle >=-90){
+        minAngle = leanAngle;
+        maxAngleChanged = true;
+      }
+    }
+    if((int16_t) leanAngle > (int16_t) maxAngle) {
+      if(leanAngle <=90){
+        maxAngle = leanAngle;
+        maxAngleChanged = true;
+      }
+    } 
+  }// while
+  
+  DEBUG_MSG("\nloop1 -  max angle calc:%d\n",millis()-loop1timestamp);
+  loop1timestamp = millis();
+
+  if( maxAngleChanged) {
+    displayMaxLeanAngle(-minAngle,maxAngle);
+    maxAngleChanged= false;
+    playTone(BUZ,4000,500);
+  }
+  DEBUG_MSG("\nloop1 -  max angle disp :%d\n",millis()-loop1timestamp);
+  loop1timestamp = millis();
+
+  displayAngle((int8_t)leanAngle);
+  DEBUG_MSG("\nloop1 -  angle disp :%d\n",millis()-loop1timestamp);
+  loop1timestamp = millis();
+  
+  
+  if(millis()-displayTimer > displayInterval_ms){
+    display.display();
+    displayTimer = millis();
+  }
+  
+  
+  DEBUG_MSG("\nloop1 -  disp update :%d\n",millis()-loop1timestamp);
+  loop1timestamp = millis();
 
 }
 
